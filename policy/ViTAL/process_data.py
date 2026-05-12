@@ -124,8 +124,12 @@ def process_episodes_batch(hdf5_paths, save_dir):
         head_cam = batch_data[f'observation/head/rgb']  # (N, H, W, 3)
     else:
         head_cam = batch_data[f'observation/{camera_type}/rgb']  # (N, H, W, 3)
-    left_tac = batch_data['tactile/left_tactile/rgb_marker']  # (N, H, W, 3)
-    right_tac = batch_data['tactile/right_tactile/rgb_marker']  # (N, H, W, 3)
+    try:
+        left_tac = batch_data['tactile/left_tactile/rgb_marker']  # (T_total, H, W, 3)
+        right_tac = batch_data['tactile/right_tactile/rgb_marker']  # (T_total, H, W, 3)
+    except KeyError:
+        left_tac = batch_data['tactile/left_gsmini/rgb_marker']  # (T_total, H, W, 3)
+        right_tac = batch_data['tactile/right_gsmini/rgb_marker']  # (T_total, H, W, 3)
     
     successful_count = 0
     start_idx = 0

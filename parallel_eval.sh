@@ -9,3 +9,7 @@ export CUDA_VISIBLE_DEVICES=$GPU
 python scripts/parallel_eval_policy.py $TASK_NAME $TASK_CONFIG $POLICY_CONFIG \
     --total_num $TOTAL_NUM \
     --workers $NUM_PROCESSES
+
+# export TRAIN_CONFIG=train_config_vision
+# export EP_NUM=50
+# bash parallel_eval.sh lift_bottle clean ACT/deploy 0,1 10 100
