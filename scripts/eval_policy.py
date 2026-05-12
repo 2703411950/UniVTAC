@@ -61,9 +61,13 @@ AppLauncher.add_app_launcher_args(parser)
 
 # parse the arguments
 args_cli = parser.parse_args()
+# args_cli.enable_cameras = True
+# args_cli.livestream = 2
+# args_cli.num_envs = 1
 args_cli.enable_cameras = True
-args_cli.livestream = 2
+args_cli.livestream = 0
 args_cli.num_envs = 1
+args_cli.headless = True
 
 # launch omniverse app, must done before importing anything from omni.isaac
 app_launcher = AppLauncher(args_cli)

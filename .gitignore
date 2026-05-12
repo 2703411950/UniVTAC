@@ -17,6 +17,8 @@
 /policy/**/checkpoints*/**
 /dump
 **/__pycache__
+core.*
+config_h200.sh
 
 /.env_isaaclab
 .localrc.sh

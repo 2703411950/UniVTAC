@@ -1,0 +1,14 @@
+policy_name: PI05
+seed: 0
+instruction_type: seen
+instuction_file: null
+
+# PI05-specific fields (passed to Policy.__init__ as args)
+pretrained_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/ckpts/lerobot/pi05_base
+tokenizer_name: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/ckpts/google/paligemma-3b-pt-224
+dtype: float32
+num_inference_steps: 10
+n_action_steps: 50
+use_tactile: false
+camera_names:
+  - cam_high
