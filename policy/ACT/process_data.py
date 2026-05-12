@@ -77,8 +77,12 @@ def data_transform(path, episode_num, save_path):
         wrist_cam_all = data[f'observation/wrist/rgb']  # (T_total, H, W, 3)
     else:
         head_cam_all = data[f'observation/{camera_type}/rgb']  # (T_total, H, W, 3)
-    left_tac_all = data['tactile/left_tactile/rgb_marker']  # (T_total, H, W, 3)
-    right_tac_all = data['tactile/right_tactile/rgb_marker']  # (T_total, H, W, 3)
+    try:
+        left_tac_all = data['tactile/left_tactile/rgb_marker']  # (T_total, H, W, 3)
+        right_tac_all = data['tactile/right_tactile/rgb_marker']  # (T_total, H, W, 3)
+    except KeyError:
+        left_tac_all = data['tactile/left_gsmini/rgb_marker']  # (T_total, H, W, 3)
+        right_tac_all = data['tactile/right_gsmini/rgb_marker']  # (T_total, H, W, 3)
     episode_ends = data['episode_ends']
     
     start_idx = 0

@@ -1,0 +1,43 @@
+{
+    "sim-insert_tube-clean-50": {
+        "dataset_dir": "./data/sim-insert_tube/clean-50",
+        "num_episodes": 50,
+        "episode_len": 1000,
+        "camera_names": [
+            "cam_high",
+            "cam_wrist",
+            "tac_left",
+            "tac_right"
+        ]
+    },
+    "sim-lift_bottle-clean-50": {
+        "dataset_dir": "./data/sim-lift_bottle/clean-50",
+        "num_episodes": 50,
+        "episode_len": 1000,
+        "camera_names": [
+            "cam_high",
+            "tac_left",
+            "tac_right"
+        ]
+    },
+    "sim-insert_HDMI-clean-50": {
+        "dataset_dir": "./data/sim-insert_HDMI/clean-50",
+        "num_episodes": 50,
+        "episode_len": 1000,
+        "camera_names": [
+            "cam_high",
+            "tac_left",
+            "tac_right"
+        ]
+    },
+    "sim-insert_hole-clean-50": {
+        "dataset_dir": "./data/sim-insert_hole/clean-50",
+        "num_episodes": 50,
+        "episode_len": 1000,
+        "camera_names": [
+            "cam_high",
+            "tac_left",
+            "tac_right"
+        ]
+    }
+}
