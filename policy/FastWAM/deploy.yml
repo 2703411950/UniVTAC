@@ -1,0 +1,25 @@
+policy_name: FastWAM
+
+# Checkpoint paths
+checkpoint_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/insert_hdmi_tactile_uncond_2cam224_1e-4/2026-05-25_22-36-18/checkpoints/weights/step_020000.pt
+dataset_stats_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/insert_hdmi_tactile_uncond_2cam224_1e-4/2026-05-25_22-36-18/dataset_stats.json
+
+# Pretrained model paths
+model_id: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/ckpts/Wan-AI/Wan2.2-TI2V-5B
+tokenizer_model_id: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/ckpts/Wan-AI/Wan2.1-T2V-1.3B
+action_dit_pretrained_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/checkpoints/ActionDiT_linear_interp_Wan22_alphascale_1024hdim.pt
+
+# Model config (must match training)
+tokenizer_max_len: 128
+action_horizon: 32
+num_inference_steps: 10
+proprio_dim: 8
+
+# Instruction file (set to null to use default empty instruction)
+instuction_file: null
+
+# DiffSynth model cache dir (contains DiffSynth-Studio/Wan-Series-Converted-Safetensors/)
+diffsynth_model_base_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/checkpoints
+
+# Device
+device: cuda:0

@@ -1,5 +1,6 @@
 from shutil import ExecError
 import sys
+import os
 
 sys.path.append(".")
 sys.path.append(f"./policy")
@@ -237,7 +238,7 @@ def main():
     task:BaseTask = task_module.Task(env_cfg, mode='eval')
     task_init_cost = time.perf_counter() - init_start
     
-    import os
+
     if os.environ.get('TRAIN_CONFIG'):
         deploy_config['train_config'] = os.environ['TRAIN_CONFIG']
     
