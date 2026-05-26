@@ -17,6 +17,8 @@
 /policy/**/checkpoints*/**
 /dump
 **/__pycache__
+core.*
+config_h200.sh
 
 /.env_isaaclab
 .localrc.sh
@@ -30,10 +32,16 @@ __tracked_surface.stl
 /third_party/isaacsim
 /third_party/isaacsim_isaacsim_link
 /third_party/libuipc-samples
+/third_party/IsaacLab
 
 /policy/VTLA/LLama*
 /policy/act_data/**
 /policy/ACT_Predict/**/*.ckpt
+/policy/PI05/data
+/policy/PI05/pi05_ckpt
+/policy/Lerobot/data
+/policy/Lerobot/outputs
+
 /assets/objects/ipt/*
 /assets/objects/tmp/*
 
@@ -53,3 +61,4 @@ textures.zip
 **/act-ckpt/*
 /*.png
 **/tmp.png
+viz_output

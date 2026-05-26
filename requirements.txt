@@ -11,7 +11,6 @@ imageio==2.37.0
 importlib_metadata==8.0.0
 InquirerPy==0.3.4
 ipython==8.31.0
-ipython==8.12.3
 ipywidgets==8.1.5
 jax==0.7.2
 jaxlib==0.7.2
@@ -19,7 +18,6 @@ Jinja2==3.1.6
 junitparser==4.0.2
 kubernetes==34.1.0
 lxml==6.0.1
-lxml==5.3.0
 matplotlib==3.10.7
 mkdocs==1.6.1
 mlflow==3.4.0
@@ -69,10 +67,7 @@ sapien==3.0.1
 scikit_learn==1.7.2
 scipy==1.16.2
 setuptools==78.1.1
-setuptools==70.0.0
-setuptools==71.1.0
 setuptools_scm==9.2.0
-setuptools_scm==8.0.4
 sphinx_book_theme==1.1.4
 stable_baselines3==2.7.0
 sympy==1.13.3
