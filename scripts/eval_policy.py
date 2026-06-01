@@ -77,6 +77,16 @@ if TYPE_CHECKING:
     from envs._base_task import BaseTask, BaseTaskCfg
     from policy._base_policy import BasePolicy
 
+class _Tee:
+    def __init__(self, *files):
+        self.files = files
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
 log_path = Path('./log')
 def log(msg):
     global log_path, args_cli
@@ -224,6 +234,10 @@ def main():
     env_cfg.save_frequency = task_config.get("save_frequency", env_cfg.save_frequency)
     env_cfg.video_frequency = task_config.get("video_frequency", env_cfg.video_frequency)
     env_cfg.random_texture = task_config.get("random_texture", False)
+    if "eval_pre_policy_gripper_qpos" in deploy_config:
+        env_cfg.eval_pre_policy_gripper_qpos = deploy_config["eval_pre_policy_gripper_qpos"]
+    if "eval_pre_policy_gripper_settle_steps" in deploy_config:
+        env_cfg.eval_pre_policy_gripper_settle_steps = deploy_config["eval_pre_policy_gripper_settle_steps"]
 
     env_cfg.scene.num_envs = 1
     env_cfg.sim.device = args_cli.device if args_cli.device is not None \
@@ -243,6 +257,14 @@ def main():
         deploy_config['train_config'] = os.environ['TRAIN_CONFIG']
     
     log_path = task.save_root / f"log.log"
+
+    # tee stdout/stderr to terminal.log
+    _terminal_log = open(task.save_root / 'terminal.log', 'w', buffering=1)
+    _orig_stdout = sys.stdout
+    _orig_stderr = sys.stderr
+    sys.stdout = _Tee(_orig_stdout, _terminal_log)
+    sys.stderr = _Tee(_orig_stderr, _terminal_log)
+
     log(f"Task Name: {task_file_name}")
     log(f"Task Config: {task_config_file.absolute()}") 
     log(f"Eval Config: {json.dumps(deploy_config, ensure_ascii=False, indent=4)}\n{'-' * 20}\n") 

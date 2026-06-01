@@ -18,6 +18,16 @@ if TYPE_CHECKING:
     from policy._base_policy import BasePolicy
 
 
+class _Tee:
+    def __init__(self, *files):
+        self.files = files
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
 # Avoid importing isaacsim before process start in main; workers will import.
 def get_config(file, default_root: Path, type: Literal['yaml', 'json']):
     if type == 'yaml':
@@ -52,6 +62,9 @@ def worker_run(args, deploy_config, task_config, task_file_name, policy_name,
     log_fd = os.open(str(log_file), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     os.dup2(log_fd, 1)
     os.dup2(log_fd, 2)
+    # Restore proper file objects so faulthandler.enable() can access .fileno()
+    sys.stdout = os.fdopen(1, 'w', 1)
+    sys.stderr = os.fdopen(2, 'w', 1)
     sys.path.insert(0, '.')
     sys.path.insert(0, './policy')
 
@@ -246,6 +259,13 @@ def main():
     clean_log = base_save_dir / 'log.log'
     out_log.touch()
     clean_log.touch()
+
+    # tee stdout/stderr to terminal.log
+    _terminal_log = open(base_save_dir / 'terminal.log', 'w', buffering=1)
+    _orig_stdout = sys.stdout
+    _orig_stderr = sys.stderr
+    sys.stdout = _Tee(_orig_stdout, _terminal_log)
+    sys.stderr = _Tee(_orig_stderr, _terminal_log)
 
     # Seed producer-consumer
     manager = Manager()

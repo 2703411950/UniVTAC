@@ -1,13 +1,13 @@
 policy_name: FastWAM
 
 # ---- Camera mode ----
-# "grid_2x2": 4 cameras in 2x2 grid → 448x448 video (base FastWAM)
-cam_mode: grid_2x2
-video_size: [448, 448]
+# "horizontal": 2 visual cameras horizontal concat → 224x448 video, no tactile (base FastWAM)
+cam_mode: horizontal
+video_size: [448, 224]
 
 # ---- Checkpoint paths ----
-checkpoint_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/insert_hdmi_tactile_uncond_2cam224_1e-4/2026-05-25_22-36-18/checkpoints/weights/step_020000.pt
-dataset_stats_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/insert_hdmi_tactile_uncond_2cam224_1e-4/2026-05-25_22-36-18/dataset_stats.json
+checkpoint_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/lift_bottle_uncond_2cam224_1e-4/2026-05-29_17-07-45/checkpoints/weights/step_020000.pt
+dataset_stats_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/lift_bottle_uncond_2cam224_1e-4/2026-05-29_17-07-45/dataset_stats.json
 
 # ---- Pretrained model paths ----
 model_id: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/ckpts/Wan-AI/Wan2.2-TI2V-5B
@@ -18,22 +18,11 @@ diffsynth_model_base_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_
 # ---- Model config ----
 tokenizer_max_len: 128
 action_horizon: 32
-num_inference_steps: 10
+num_inference_steps: 20
 proprio_dim: 8
 
 # ---- Instruction ----
 instuction_file: null
-instruction: clean
 
 # ---- Device ----
 device: cuda:0
-
-# ---- Debug logging ----
-debug_log: true
-debug_log_infer_batches: 20
-debug_log_exec_steps: 600
-debug_save_images: false
-clip_state_to_train_range: true
-state_global_min_override: null
-eval_pre_policy_gripper_qpos: null
-eval_pre_policy_gripper_settle_steps: 5

@@ -158,6 +158,8 @@ class BaseTaskCfg(DirectRLEnvCfg):
 
     use_adaptive_grasp: bool = True
     adaptive_grasp_depth_threshold = None # in mm
+    eval_pre_policy_gripper_qpos: float | None = None
+    eval_pre_policy_gripper_settle_steps: int = 5
     reset_time_limit: float = 120.0  # in seconds
 
     cameras: list[CameraCfg] = [
@@ -420,6 +422,18 @@ class BaseTask(UipcRLEnv):
         self._update_render()
 
         self.pre_move()
+        if self.mode == 'eval' and self.cfg.eval_pre_policy_gripper_qpos is not None:
+            target_qpos = float(self.cfg.eval_pre_policy_gripper_qpos)
+            target = torch.tensor([target_qpos, target_qpos], dtype=torch.float32, device=self.device)
+            current_qpos = self._robot_manager.get_gripper_qpos()
+            velocity = torch.zeros_like(target)
+            self.logger.info(
+                f"Aligning pre-policy gripper qpos from {current_qpos:.9f} to {target_qpos:.9f}"
+            )
+            self._robot_manager.set_gripper(target, velocity, force=True)
+            for _ in range(int(self.cfg.eval_pre_policy_gripper_settle_steps)):
+                self._step(is_save=False)
+            self._update_render()
         self.in_pre_move = False
 
         # update render to avoid artifacts
