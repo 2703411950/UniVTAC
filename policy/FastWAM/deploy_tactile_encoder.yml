@@ -7,8 +7,8 @@ cam_mode: tactile_encoder
 video_size: [448, 224]
 
 # ---- Checkpoint paths ----
-checkpoint_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/lift_bottle_tactile_encoder_uncond_2cam224_1e-4/2026-05-28_15-37-16/checkpoints/weights/step_020000.pt
-dataset_stats_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/lift_bottle_tactile_encoder_uncond_2cam224_1e-4/2026-05-28_15-37-16/dataset_stats.json
+checkpoint_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/insert_hdmi_tactile_encoder_uncond_2cam224_1e-4/2026-05-27_13-39-25/checkpoints/weights/step_020000.pt
+dataset_stats_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/FastWAM/runs/insert_hdmi_tactile_encoder_uncond_2cam224_1e-4/2026-05-27_13-39-25/dataset_stats.json
 
 # ---- Pretrained model paths ----
 model_id: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/ckpts/Wan-AI/Wan2.2-TI2V-5B
@@ -19,8 +19,12 @@ diffsynth_model_base_path: /inspire/hdd/global_user/yangyi-253108120173/inspire_
 # ---- Model config ----
 tokenizer_max_len: 128
 action_horizon: 32
-num_inference_steps: 20
+num_inference_steps: 10
 proprio_dim: 8
+
+temporal_agg: true
+temporal_agg_query_frequency: 4
+temporal_agg_k: 0.01
 
 # ---- Instruction ----
 instuction_file: null

@@ -20,6 +20,9 @@ tokenizer_max_len: 128
 action_horizon: 32
 num_inference_steps: 10
 proprio_dim: 8
+temporal_agg: true
+temporal_agg_query_frequency: 1
+temporal_agg_k: 0.01
 
 # ---- Instruction ----
 instuction_file: null

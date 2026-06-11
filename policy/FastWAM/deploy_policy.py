@@ -50,6 +50,9 @@ class Policy(BasePolicy):
         tokenizer_max_len = int(args.get("tokenizer_max_len", 128))
         action_horizon = int(args.get("action_horizon", 32))
         self.num_inference_steps = int(args.get("num_inference_steps", 10))
+        self.temporal_agg = bool(args.get("temporal_agg", False))
+        self.temporal_agg_query_frequency = int(args.get("temporal_agg_query_frequency", 1))
+        self.temporal_agg_k = float(args.get("temporal_agg_k", 0.01))
         self.device_str = str(args.get("device", "cuda:0"))
         self.debug_log = bool(args.get("debug_log", False))
         self.debug_log_infer_batches = int(args.get("debug_log_infer_batches", 4))
@@ -62,6 +65,7 @@ class Policy(BasePolicy):
         self._episode_idx = -1
         self._infer_batch_idx = 0
         self._exec_step_idx = 0
+        self._all_time_actions: np.ndarray | None = None
 
         # ---- camera mode ----
         self.cam_mode = str(args.get("cam_mode", "grid_2x2"))
@@ -210,7 +214,7 @@ class Policy(BasePolicy):
 
         print(f"FastWAM policy loaded. mode={self.cam_mode}, device={self.device_str}, "
               f"video={self.video_w}x{self.video_h}, action_horizon={self.action_horizon}, "
-              f"num_inference_steps={self.num_inference_steps}")
+              f"num_inference_steps={self.num_inference_steps}, temporal_agg={self.temporal_agg}")
         if self.debug_log:
             print("[FastWAM] Debug logging enabled. Logs will be created under task.save_root/FastWAM_debug.")
 
@@ -269,6 +273,9 @@ class Policy(BasePolicy):
             "video_size": [self.video_w, self.video_h],
             "action_horizon": self.action_horizon,
             "num_inference_steps": self.num_inference_steps,
+            "temporal_agg": self.temporal_agg,
+            "temporal_agg_query_frequency": self.temporal_agg_query_frequency,
+            "temporal_agg_k": self.temporal_agg_k,
             "state_stats": {
                 "original_global_min": self._tensor_summary(
                     self.original_dataset_stats["state"]["default"]["global_min"]
@@ -451,45 +458,100 @@ class Policy(BasePolicy):
     #  Main eval loop
     # ------------------------------------------------------------------
 
+    def _infer_action_chunk(self, task, observation) -> tuple[dict, np.ndarray]:
+        instruction = self.instruction_override or getattr(task, "instruction", "insert hdmi")
+        obs = self.encode_obs(observation, instruction=instruction)
+
+        infer_kwargs = dict(
+            prompt=obs["prompt"],
+            input_image=obs["input_image"],
+            action_horizon=self.action_horizon,
+            proprio=obs["proprio"],
+            num_inference_steps=self.num_inference_steps,
+            seed=None,
+        )
+        if self.cam_mode == "tactile_encoder":
+            infer_kwargs["tactile_images"] = obs["tactile_images"].unsqueeze(0)  # [1, 2, 3, 224, 224]
+
+        result = self.model.infer_action(**infer_kwargs)
+        actions = self._denormalize_action(result["action"])
+        if self.debug_log and self._infer_batch_idx < self.debug_log_infer_batches:
+            self._write_debug({
+                "event": "infer_action",
+                "episode": self._episode_idx,
+                "infer_batch": self._infer_batch_idx,
+                "exec_step": self._exec_step_idx,
+                "normalized_action": self._tensor_summary(result["action"]),
+                "denormalized_action": self._tensor_summary(actions),
+                "denormalized_action_delta_abs": self._tensor_summary(np.abs(np.diff(actions, axis=0))),
+            })
+        self._infer_batch_idx += 1
+        return result, actions
+
+    def _ensure_temporal_agg_buffer(self, task) -> None:
+        if self._all_time_actions is not None:
+            return
+        max_steps = int(getattr(task.cfg, "step_lim", 600)) + self.action_horizon + 1
+        self._all_time_actions = np.full((max_steps, max_steps, 8), np.nan, dtype=np.float32)
+
+    def _eval_temporal_agg(self, task, observation) -> np.ndarray:
+        self._ensure_temporal_agg_buffer(task)
+        t = self._exec_step_idx
+
+        should_query = (t % self.temporal_agg_query_frequency == 0)
+        if not should_query:
+            current = self._all_time_actions[: t + 1, t]
+            should_query = not np.any(np.all(np.isfinite(current), axis=1))
+
+        if should_query:
+            _, actions = self._infer_action_chunk(task, observation)
+            end_t = min(t + actions.shape[0], self._all_time_actions.shape[1])
+            self._all_time_actions[t, t:end_t] = actions[: end_t - t]
+
+        actions_for_curr_step = self._all_time_actions[: t + 1, t]
+        actions_populated = np.all(np.isfinite(actions_for_curr_step), axis=1)
+        actions_for_curr_step = actions_for_curr_step[actions_populated]
+        if actions_for_curr_step.size == 0:
+            _, actions = self._infer_action_chunk(task, observation)
+            end_t = min(t + actions.shape[0], self._all_time_actions.shape[1])
+            self._all_time_actions[t, t:end_t] = actions[: end_t - t]
+            actions_for_curr_step = self._all_time_actions[: t + 1, t]
+            actions_for_curr_step = actions_for_curr_step[np.all(np.isfinite(actions_for_curr_step), axis=1)]
+
+        exp_weights = np.exp(-self.temporal_agg_k * np.arange(len(actions_for_curr_step), dtype=np.float32))
+        exp_weights = exp_weights / exp_weights.sum()
+        action = (actions_for_curr_step * exp_weights[:, None]).sum(axis=0).astype(np.float32)
+
+        if self.debug_log and self._exec_step_idx < self.debug_log_exec_steps:
+            self._write_debug({
+                "event": "temporal_agg",
+                "episode": self._episode_idx,
+                "exec_step": self._exec_step_idx,
+                "query": should_query,
+                "num_actions_for_curr_step": int(len(actions_for_curr_step)),
+                "weights": self._tensor_summary(exp_weights),
+                "aggregated_action": self._tensor_summary(action),
+            })
+        return action
+
     def eval(self, task, observation):
         self._ensure_debug_dir(task)
-        if not self._action_buffer:
-            instruction = self.instruction_override or getattr(task, "instruction", "insert hdmi")
-            obs = self.encode_obs(observation, instruction=instruction)
+        if self.temporal_agg:
+            action = self._eval_temporal_agg(task, observation)
+        else:
+            if not self._action_buffer:
+                _, actions = self._infer_action_chunk(task, observation)
+                self._action_buffer = [actions[i] for i in range(actions.shape[0])]
+            action = self._action_buffer.pop(0)
 
-            infer_kwargs = dict(
-                prompt=obs["prompt"],
-                input_image=obs["input_image"],
-                action_horizon=self.action_horizon,
-                proprio=obs["proprio"],
-                num_inference_steps=self.num_inference_steps,
-                seed=None,
-            )
-            if self.cam_mode == "tactile_encoder":
-                infer_kwargs["tactile_images"] = obs["tactile_images"].unsqueeze(0)  # [1, 2, 3, 224, 224]
-
-            result = self.model.infer_action(**infer_kwargs)
-            actions = self._denormalize_action(result["action"])
-            self._action_buffer = [actions[i] for i in range(actions.shape[0])]
-            if self.debug_log and self._infer_batch_idx < self.debug_log_infer_batches:
-                self._write_debug({
-                    "event": "infer_action",
-                    "episode": self._episode_idx,
-                    "infer_batch": self._infer_batch_idx,
-                    "normalized_action": self._tensor_summary(result["action"]),
-                    "denormalized_action": self._tensor_summary(actions),
-                    "denormalized_action_delta_abs": self._tensor_summary(np.abs(np.diff(actions, axis=0))),
-                })
-            self._infer_batch_idx += 1
-
-        action = self._action_buffer.pop(0)
         if self.debug_log and self._exec_step_idx < self.debug_log_exec_steps:
             current_joint = observation["embodiment"]["joint"][:8].detach().float().cpu().numpy()
             self._write_debug({
                 "event": "execute_action",
                 "episode": self._episode_idx,
                 "exec_step": self._exec_step_idx,
-                "buffer_remaining": len(self._action_buffer),
+                "buffer_remaining": len(self._action_buffer) if not self.temporal_agg else None,
+                "temporal_agg": self.temporal_agg,
                 "current_joint8": self._tensor_summary(current_joint),
                 "action": self._tensor_summary(action),
                 "action_minus_current_joint": self._tensor_summary(action - current_joint),
@@ -500,6 +562,7 @@ class Policy(BasePolicy):
 
     def reset(self):
         self._action_buffer.clear()
+        self._all_time_actions = None
         self._episode_idx += 1
         self._infer_batch_idx = 0
         self._exec_step_idx = 0
