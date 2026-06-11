@@ -17,7 +17,7 @@
 /policy/**/checkpoints*/**
 /dump
 **/__pycache__
-core.*
+/core.*
 config_h200.sh
 
 /.env_isaaclab
@@ -26,6 +26,10 @@ cvt.sh
 __tracked_surface.stl
 /sanity_check/*
 /*.mp4
+*.log
+*.pdf
+*.hdf5
+*.ckpt
 !/assets/embodiments/franka/*
 
 /third_party/curobo
@@ -37,6 +41,7 @@ __tracked_surface.stl
 /policy/VTLA/LLama*
 /policy/act_data/**
 /policy/ACT_Predict/**/*.ckpt
+/policy/**/act_ckpt*/**
 /policy/PI05/data
 /policy/PI05/pi05_ckpt
 /policy/Lerobot/data
