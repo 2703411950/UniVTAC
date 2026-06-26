@@ -1,13 +1,12 @@
 policy_name: wla
 
 mantis_root: /data1/cyy/Mantis_flow_depth_use_metaqury
-
-# model_id: /inspire/hdd/global_user/yangyi-253108120173/inspire_shared/mount/advanced-machine-learning-and-deep-learning-applications/cyy/Mantis_flow_depth_use_metaqury/output_insert_hdmi_tactile_lerobot_image_action/insert_hdmi_tactile_image_action_3w/checkpoint-13500
+# model_id: /data1/cyy/Mantis_flow_depth_use_metaqury/output_insert_hdmi_tactile_encoder_lerobot_image_action/insert_hdmi_tactile_encoder_image_action_3w/checkpoint-30000
 use_pt_weights_only: true
-training_config: lift_bottle_image_action.yaml
-checkpoint_path: /data1/cyy/ckpts/checkpoints_lift_bottle_image_action_10000/model.pt
-norm_stats_path: /data1/cyy/Mantis_flow_depth_use_metaqury/configs/lift_bottle_lerobot_norm_stats.json
-unnorm_key: lift_bottle_lerobot
+training_config: insert_hdmi_tactile_encoder_lerobot_image_action.yaml
+checkpoint_path: /data1/cyy/ckpts/checkpoints_insert_hdmi_tactile_encoder_lerobot_image_action_20000/model.pt
+norm_stats_path: /data1/cyy/Mantis_flow_depth_use_metaqury/configs/insert_hdmi_tactile_lerobot_norm_stats.json
+unnorm_key: insert_hdmi_tactile_lerobot
 
 target_image_size: 512
 vae_downsample_f: 32
@@ -17,15 +16,15 @@ max_state_dim: 8
 original_action_dim: 8
 action_horizon: 32
 replan_every: 32
-temporal_agg: false
+temporal_agg: true
 temporal_agg_query_frequency: 4
 temporal_agg_k: 0.01
 use_autocast: true
 dtype: bfloat16
 device: cuda:0
 convert_rgb_to_bgr: true
+use_tactile_encoder: true
 use_tactile_images: false
-history_obs_step: 8
 
 instuction_file: null
 instruction: clean

@@ -2,6 +2,7 @@ import os
 import cv2
 import h5py
 import pickle
+import shutil
 import subprocess
 
 import torch
@@ -236,9 +237,43 @@ class HDF5Handler:
         with h5py.File(hdf5_path, "w") as f:
             self.dict_to_hdf5(f, data)
 
+def _resolve_ffmpeg_exe() -> str:
+    candidates = []
+    try:
+        import imageio_ffmpeg
+        candidates.append(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception:
+        pass
+    for exe in ("/usr/bin/ffmpeg", shutil.which("ffmpeg")):
+        if exe and exe not in candidates:
+            candidates.append(exe)
+
+    for exe in candidates:
+        if not exe or not os.path.isfile(exe):
+            continue
+        try:
+            proc = subprocess.run(
+                [exe, "-hide_banner", "-h", "encoder=libx264"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except Exception:
+            continue
+        if proc.returncode == 0 and "-crf" in proc.stdout:
+            return exe
+
+    raise RuntimeError(
+        "No ffmpeg with libx264/crf support found. "
+        "Install system ffmpeg or imageio-ffmpeg."
+    )
+
+
 class VideoHandler:
     def __init__(self):
         self.ffmpeg = None
+        self._ffmpeg_exe = _resolve_ffmpeg_exe()
         
     def reset(self, video_path, video_size):
         if self.ffmpeg is not None:
@@ -249,27 +284,36 @@ class VideoHandler:
         self.video_size = video_size
         w, h = video_size
         self.ffmpeg = subprocess.Popen([
-            "ffmpeg", "-y", "-loglevel", "error",
+            self._ffmpeg_exe, "-y", "-loglevel", "error",
             "-f", "rawvideo", "-pixel_format", "rgb24",
             "-video_size", f"{w}x{h}", "-framerate", "10",
             "-i", "-", "-pix_fmt", "yuv420p",
-            "-vcodec", "libx264", "-crf", "23",
+            "-c:v", "libx264", "-crf", "23",
             "-movflags", "+faststart",
             str(self.video_path)
-        ], stdin=subprocess.PIPE)
+        ], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        if self.ffmpeg.poll() is not None:
+            err = self.ffmpeg.stderr.read().decode().strip()
+            self.ffmpeg = None
+            raise RuntimeError(f"ffmpeg failed to start ({self._ffmpeg_exe}): {err}")
     
     def __del__(self):
         if self.ffmpeg is not None:
             self.close()
  
     def write(self, frame:torch.Tensor):
+        if self.ffmpeg is None:
+            raise RuntimeError("VideoHandler is not initialized")
+        if self.ffmpeg.poll() is not None:
+            err = self.ffmpeg.stderr.read().decode().strip()
+            raise BrokenPipeError(
+                f"ffmpeg exited before writing frame ({self._ffmpeg_exe}): {err}"
+            )
+
         frame = frame.cpu().numpy()
-        if frame.shape != self.video_size:
+        if frame.shape[:2] != (self.video_size[1], self.video_size[0]):
             frame = cv2.resize(frame, self.video_size)
         self.ffmpeg.stdin.write(frame.tobytes())
-        # cv2.putText(frame, f'Streaming [{self.video_path.stem}]', (10, 30),
-        #             cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 0), 2)
-        # self.stream.stdin.write(frame.tobytes())
     
     def forgive(self):
         if self.ffmpeg is None: return
@@ -277,15 +321,17 @@ class VideoHandler:
         self.video_path.unlink(missing_ok=True)
  
     def close(self, result:str=None):
-        self.ffmpeg.stdin.close()
+        if self.ffmpeg is None:
+            return
+
+        if self.ffmpeg.stdin:
+            self.ffmpeg.stdin.close()
         self.ffmpeg.wait()
-        del self.ffmpeg
+        stderr = self.ffmpeg.stderr.read().decode().strip() if self.ffmpeg.stderr else ""
+        if self.ffmpeg.returncode != 0 and stderr:
+            print(f"[VideoHandler] ffmpeg exited with code {self.ffmpeg.returncode}: {stderr}")
+        self.ffmpeg = None
 
-        # self.stream.stdin.close()
-        # self.stream.wait()
-        # del self.stream
-
-        if result is not None:
+        if result is not None and self.video_path.exists():
             new_name = self.video_path.parent / f"{self.video_path.stem}_{result}.mp4"
             self.video_path.rename(new_name)
-        self.ffmpeg = None

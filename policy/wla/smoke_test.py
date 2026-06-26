@@ -33,7 +33,7 @@ def main():
             ], dtype=torch.float32)
         },
     }
-    if cfg.get("use_tactile_images", True):
+    if cfg.get("use_tactile_encoder", False) or cfg.get("use_tactile_images", True):
         obs["tactile"] = {
             "left_tactile": {"rgb_marker": torch.zeros((240, 320, 3), dtype=torch.uint8)},
             "right_tactile": {"rgb_marker": torch.zeros((240, 320, 3), dtype=torch.uint8)},
@@ -42,7 +42,7 @@ def main():
     class Task:
         instruction = "clean"
 
-    actions = policy._sample_action_chunk(Task(), obs)
+    actions, _ = policy._sample_action_chunk(Task(), obs)
     print(f"smoke_ok num_actions={len(actions)} action_shape={tuple(actions[0].shape)}")
 
 

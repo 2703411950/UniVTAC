@@ -1,0 +1,40 @@
+policy_name: wla
+
+mantis_root: /data1/cyy/Mantis_flow_depth_use_metaqury
+use_pt_weights_only: true
+training_config: insert_hdmi_tactile_marker_lerobot_image_action_predict_tactile.yaml
+checkpoint_path: /data1/cyy/ckpts/checkpoints_insert_hdmi_tactile_marker_lerobot_image_action_predict_tactile_10000/model.pt
+norm_stats_path: /data1/cyy/Mantis_flow_depth_use_metaqury/configs/insert_hdmi_tactile_lerobot_norm_stats.json
+unnorm_key: insert_hdmi_tactile_lerobot
+
+target_image_size: 512
+vae_downsample_f: 32
+primary_image_size: 256
+auxiliary_image_size: 256
+max_state_dim: 8
+original_action_dim: 8
+action_horizon: 32
+replan_every: 32
+temporal_agg: false
+use_autocast: true
+dtype: bfloat16
+device: cuda:0
+convert_rgb_to_bgr: true
+
+use_tactile_encoder: true
+use_tactile_images: false
+tactile_input_type: marker
+tactile_num_markers: 1200
+
+# ===== Benchmark tactile prediction eval (marker latent) =====
+eval_predict_tactile: true
+tactile_eval_timesteps: [0, 7, 15, 23, 31]
+
+instuction_file: null
+instruction: clean
+
+debug_log: true
+debug_save_images: false
+debug_save_every: 50
+eval_pre_policy_gripper_qpos: null
+eval_pre_policy_gripper_settle_steps: 5
