@@ -2,8 +2,8 @@ policy_name: wla
 
 mantis_root: /data1/cyy/Mantis_flow_depth_use_metaqury
 use_pt_weights_only: true
-training_config: insert_hdmi_tactile_marker_lerobot_image_action_predict_tactile.yaml
-checkpoint_path: /data1/cyy/ckpts/checkpoints_insert_hdmi_tactile_marker_lerobot_image_action_predict_tactile_20000/model.pt
+training_config: insert_hdmi_dual_expert_image_action_predict_tactile_local.yaml
+checkpoint_path: /data1/cyy/ckpts/checkpoints_insert_hdmi_dual_expert_image_action_predict_tactile_20000/model.pt
 norm_stats_path: /data1/cyy/Mantis_flow_depth_use_metaqury/configs/insert_hdmi_tactile_lerobot_norm_stats.json
 unnorm_key: insert_hdmi_tactile_lerobot
 
@@ -15,7 +15,7 @@ max_state_dim: 8
 original_action_dim: 8
 action_horizon: 32
 replan_every: 32
-temporal_agg: false
+temporal_agg: true
 temporal_agg_query_frequency: 4
 temporal_agg_k: 0.01
 use_autocast: true
@@ -23,11 +23,10 @@ dtype: bfloat16
 device: cuda:0
 convert_rgb_to_bgr: true
 
-# Marker-based tactile encoder (late fusion into action expert)
+# Dual expert: tactile image encoder (late fusion) + joint action/tactile prediction
 use_tactile_encoder: true
 use_tactile_images: false
-tactile_input_type: marker
-tactile_num_markers: 1200
+history_obs_step: 8
 
 instuction_file: null
 instruction: clean

@@ -319,6 +319,9 @@ class Policy(BasePolicy):
         self.model.to(device=self.device, dtype=self.model_dtype)
         self.model.eval()
 
+        self.tactile_input_type = str(
+            getattr(self.model.config, "tactile_input_type", args.get("tactile_input_type", "image"))
+        )
         self.use_history_obs = bool(getattr(self.model.config, "use_history_obs", False))
         self.history_obs_step = int(
             args.get(
@@ -374,6 +377,7 @@ class Policy(BasePolicy):
             f"temporal_agg={self.temporal_agg}, "
             f"use_tactile_encoder={self.use_tactile_encoder}, "
             f"use_tactile_images={self.use_tactile_images}, "
+            f"tactile_input_type={self.tactile_input_type}, "
             f"use_history_obs={self.use_history_obs}, "
             f"history_obs_step={self.history_obs_step}, "
             f"eval_predict_tactile={self.eval_predict_tactile}"
@@ -403,6 +407,30 @@ class Policy(BasePolicy):
         tensor = self._image_to_tensor(img, convert_rgb_to_bgr=self.convert_rgb_to_bgr)
         return self._resize_with_pad(tensor, self.auxiliary_image_size)
 
+    @staticmethod
+    def _marker_to_tensor(marker):
+        if isinstance(marker, torch.Tensor):
+            tensor = marker.detach().cpu().float()
+        else:
+            tensor = torch.as_tensor(np.asarray(marker), dtype=torch.float32)
+
+        if tensor.ndim == 2 and tensor.shape[-1] == 2:
+            tensor = torch.stack([torch.zeros_like(tensor), tensor], dim=0)
+        if tensor.ndim != 3 or tensor.shape[0] != 2 or tensor.shape[-1] != 2:
+            raise ValueError(
+                "Expected tactile marker tensor [2, num_markers, 2], "
+                f"got shape {tuple(tensor.shape)}"
+            )
+        return tensor
+
+    @staticmethod
+    def _get_tactile_marker(tactile_obs):
+        if "marker" in tactile_obs:
+            return tactile_obs["marker"]
+        if "marker_motion" in tactile_obs:
+            return tactile_obs["marker_motion"]
+        raise KeyError("Tactile marker observation must contain 'marker' or 'marker_motion'.")
+
     def _build_head_input_images(self, head_tensor: torch.Tensor) -> list[torch.Tensor]:
         current = self.primary_image_transform(head_tensor)
         if not self.use_history_obs:
@@ -427,6 +455,7 @@ class Policy(BasePolicy):
         )
         images = self._build_head_input_images(head)
         tactile_images = None
+        tactile_markers = None
         if self.use_tactile_images:
             left_tac = self._image_to_tensor(
                 observation["tactile"]["left_tactile"]["rgb_marker"],
@@ -441,13 +470,22 @@ class Policy(BasePolicy):
                 self.auxiliary_image_transform(right_tac),
             ])
         elif self.use_tactile_encoder:
-            left_tac = self._tactile_to_tensor(
-                observation["tactile"]["left_tactile"]["rgb_marker"]
-            )
-            right_tac = self._tactile_to_tensor(
-                observation["tactile"]["right_tactile"]["rgb_marker"]
-            )
-            tactile_images = torch.stack([left_tac, right_tac], dim=0).unsqueeze(0)
+            if self.tactile_input_type == "marker":
+                left_marker = self._marker_to_tensor(
+                    self._get_tactile_marker(observation["tactile"]["left_tactile"])
+                )
+                right_marker = self._marker_to_tensor(
+                    self._get_tactile_marker(observation["tactile"]["right_tactile"])
+                )
+                tactile_markers = torch.stack([left_marker, right_marker], dim=0).unsqueeze(0)
+            else:
+                left_tac = self._tactile_to_tensor(
+                    observation["tactile"]["left_tactile"]["rgb_marker"]
+                )
+                right_tac = self._tactile_to_tensor(
+                    observation["tactile"]["right_tactile"]["rgb_marker"]
+                )
+                tactile_images = torch.stack([left_tac, right_tac], dim=0).unsqueeze(0)
 
         input_images = [images]
 
@@ -458,9 +496,18 @@ class Policy(BasePolicy):
             self.max_state_dim,
         )
         state = state.unsqueeze(0)
-        return input_images, state, tactile_images
+        return input_images, state, tactile_images, tactile_markers
 
     def _extract_tactile_pair(self, observation):
+        if self.tactile_input_type == "marker":
+            left_marker = self._marker_to_tensor(
+                self._get_tactile_marker(observation["tactile"]["left_tactile"])
+            )
+            right_marker = self._marker_to_tensor(
+                self._get_tactile_marker(observation["tactile"]["right_tactile"])
+            )
+            return left_marker, right_marker
+
         left_tac = self._tactile_to_tensor(
             observation["tactile"]["left_tactile"]["rgb_marker"]
         )
@@ -497,7 +544,13 @@ class Policy(BasePolicy):
             return
 
         self._tactile_eval_active = False
-        horizon = self.action_horizon
+        horizon = min(self.action_horizon, int(len(self._pred_tactiles)))
+        if horizon <= 0:
+            print(f"[WLA] tactile eval: empty predicted tactile chunk, skip.")
+            self._pred_tactiles = None
+            self._gt_tac_left = []
+            self._gt_tac_right = []
+            return
 
         valid_indices = [
             i
@@ -532,12 +585,29 @@ class Policy(BasePolicy):
             self._gt_tac_right = []
             return
 
-        target_tactile_images = torch.stack([left_stack, right_stack], dim=1).unsqueeze(0)
+        target_tactile = torch.stack([left_stack, right_stack], dim=1).unsqueeze(0)
+        target_kwargs = (
+            {"target_tactile_markers": target_tactile.to(device=self.device)}
+            if self.tactile_input_type == "marker"
+            else {"target_tactile_images": target_tactile.to(device=self.device)}
+        )
 
         with torch.inference_mode():
-            gt_tactiles = self.model.model.encode_target_tactile_trajectory(
-                target_tactile_images=target_tactile_images.to(device=self.device)
-            )[0].float().cpu().numpy()
+            encoded_gt_tactiles = self.model.model.encode_target_tactile_trajectory(
+                **target_kwargs
+            )
+
+        if encoded_gt_tactiles is None:
+            print(
+                "[WLA] tactile eval: model did not return GT tactile latents "
+                f"(tactile_input_type={self.tactile_input_type}), skip."
+            )
+            self._pred_tactiles = None
+            self._gt_tac_left = []
+            self._gt_tac_right = []
+            return
+
+        gt_tactiles = encoded_gt_tactiles[0].float().cpu().numpy()
 
         pred_tactiles = self._pred_tactiles[:horizon]
         per_step_mse = np.mean((pred_tactiles - gt_tactiles) ** 2, axis=1)
@@ -550,7 +620,11 @@ class Policy(BasePolicy):
         per_step_cos = np.asarray(per_step_cos, dtype=np.float32)
 
         pred_left_imgs = pred_right_imgs = None
-        if self._tactile_decoder_bank is not None and self.model.model.tactile_target_proj is not None:
+        if (
+            self.tactile_input_type == "image"
+            and self._tactile_decoder_bank is not None
+            and self.model.model.tactile_target_proj is not None
+        ):
             from policy.wla.tactile_pred_utils import decode_pred_tactile_images
 
             pred_left_imgs, pred_right_imgs = decode_pred_tactile_images(
@@ -568,10 +642,11 @@ class Policy(BasePolicy):
             "gt_tactiles": gt_tactiles,
             "per_step_mse": per_step_mse,
             "per_step_cos": per_step_cos,
-            "gt_left_imgs": left_stack,
-            "gt_right_imgs": right_stack,
+            "gt_left_imgs": left_stack if self.tactile_input_type == "image" else None,
+            "gt_right_imgs": right_stack if self.tactile_input_type == "image" else None,
             "pred_left_imgs": pred_left_imgs,
             "pred_right_imgs": pred_right_imgs,
+            "tactile_input_type": self.tactile_input_type,
             "chunk_start_step": self._tactile_chunk_start,
             "episode_idx": self._episode_idx,
         }
@@ -587,6 +662,7 @@ class Policy(BasePolicy):
         from policy.wla.tactile_pred_utils import (
             plot_latent_heatmap,
             plot_latent_metrics,
+            plot_latent_temporal_diff,
             plot_tactile_image_comparison,
             save_contact_sheet,
         )
@@ -604,13 +680,15 @@ class Policy(BasePolicy):
         )
         plot_latent_metrics(result, chunk_dir / "latent_metrics.png")
         plot_latent_heatmap(result, chunk_dir / "latent_heatmap.png")
-        if timesteps:
+        plot_latent_temporal_diff(result, chunk_dir / "latent_temporal_diff.png")
+        if timesteps and self.tactile_input_type == "image":
             plot_tactile_image_comparison(result, timesteps, chunk_dir / "tactile_image_compare.png")
             save_contact_sheet(result, timesteps, chunk_dir / "tactile_contact_sheet.png")
 
         summary_item = {
             "episode_idx": self._episode_idx,
             "chunk_start_step": int(self._tactile_chunk_start),
+            "tactile_input_type": self.tactile_input_type,
             "mean_tactile_mse": float(np.mean(per_step_mse)),
             "mean_tactile_cos": float(np.mean(per_step_cos)),
             "has_pred_images": pred_left_imgs is not None,
@@ -636,7 +714,7 @@ class Policy(BasePolicy):
         self._gt_tac_right = []
 
     def _sample_action_chunk(self, task, observation):
-        input_images, states, tactile_images = self.encode_obs(observation)
+        input_images, states, tactile_images, tactile_markers = self.encode_obs(observation)
         instruction = self.instruction_override or task.instruction or "clean"
 
         model_dtype = next(self.model.model.policy_head.parameters()).dtype
@@ -649,6 +727,11 @@ class Policy(BasePolicy):
         }
         if tactile_images is not None:
             sample_kwargs["tactile_images"] = tactile_images.to(
+                dtype=model_dtype,
+                device=self.device,
+            )
+        if tactile_markers is not None:
+            sample_kwargs["tactile_markers"] = tactile_markers.to(
                 dtype=model_dtype,
                 device=self.device,
             )

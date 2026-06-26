@@ -36,6 +36,7 @@ from policy.wla.deploy_policy import (
 from policy.wla.tactile_pred_utils import (
     plot_latent_heatmap,
     plot_latent_metrics,
+    plot_latent_temporal_diff,
 )
 
 DEFAULT_DEPLOY_CONFIG = UNIVTAC_ROOT / "policy/wla/deploy_tactile_marker_predict_tactile.yml"
@@ -258,6 +259,7 @@ def main():
         )
         plot_latent_metrics(result, sample_dir / "latent_metrics.png")
         plot_latent_heatmap(result, sample_dir / "latent_heatmap.png")
+        plot_latent_temporal_diff(result, sample_dir / "latent_temporal_diff.png")
 
         summary.append(
             {

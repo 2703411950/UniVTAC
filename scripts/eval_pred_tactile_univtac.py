@@ -39,6 +39,7 @@ from policy.wla.tactile_pred_utils import (
     describe_decoder_keys,
     plot_latent_heatmap,
     plot_latent_metrics,
+    plot_latent_temporal_diff,
     plot_tactile_image_comparison,
     save_contact_sheet,
 )
@@ -276,6 +277,7 @@ def main():
         )
         plot_latent_metrics(result, sample_dir / "latent_metrics.png")
         plot_latent_heatmap(result, sample_dir / "latent_heatmap.png")
+        plot_latent_temporal_diff(result, sample_dir / "latent_temporal_diff.png")
         plot_tactile_image_comparison(result, timesteps, sample_dir / "tactile_image_compare.png")
         save_contact_sheet(result, timesteps, sample_dir / "tactile_contact_sheet.png")
 

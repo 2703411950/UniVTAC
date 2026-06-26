@@ -77,6 +77,57 @@ class _MLPImageDecoder(nn.Module):
         return torch.sigmoid(flat.view(-1, *self.image_shape))
 
 
+class _ConvImageDecoder(nn.Module):
+    def __init__(self, state: Dict[str, torch.Tensor]):
+        super().__init__()
+        if "fc.weight" not in state or "deconv.0.weight" not in state:
+            raise ValueError("Conv image decoder state must contain fc and deconv weights.")
+
+        latent_dim = state["fc.weight"].shape[1]
+        fc_features = state["fc.weight"].shape[0]
+        hidden_channels = state["deconv.0.weight"].shape[0]
+        start_side = int(round((fc_features // hidden_channels) ** 0.5))
+        if hidden_channels * start_side * start_side != fc_features:
+            raise ValueError(f"Unsupported decoder fc shape: {tuple(state['fc.weight'].shape)}")
+
+        output_channels = state["deconv.16.weight"].shape[0]
+        self.hidden_channels = hidden_channels
+        self.start_side = start_side
+        self.fc = nn.Linear(latent_dim, fc_features)
+        self.deconv = nn.Sequential(
+            nn.ConvTranspose2d(hidden_channels, 128, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode="bilinear"),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Conv2d(128, output_channels, kernel_size=3, stride=1, padding=1),
+            nn.Sigmoid(),
+        )
+        self.load_state_dict(state, strict=True)
+
+    def forward(self, latent: torch.Tensor) -> torch.Tensor:
+        flat = self.fc(latent)
+        image = flat.view(-1, self.hidden_channels, self.start_side, self.start_side)
+        return self.deconv(image)
+
+
+def _build_image_decoder(state: Dict[str, torch.Tensor]) -> nn.Module:
+    if "fc.weight" in state and any(key.startswith("deconv.") for key in state):
+        return _ConvImageDecoder(state)
+    return _MLPImageDecoder(state)
+
+
 class TactileDecoderBank(nn.Module):
     def __init__(self, ckpt_path: str):
         super().__init__()
@@ -103,9 +154,23 @@ class TactileDecoderBank(nn.Module):
                     for key, value in dec_state.items()
                     if key.startswith(f"{sensor}.")
                 }
-                self.decoders[sensor] = _MLPImageDecoder(sub_state)
+                self.decoders[sensor] = _build_image_decoder(sub_state)
         else:
-            self.decoders["shared"] = _MLPImageDecoder(dec_state)
+            modality = next(
+                (
+                    name
+                    for name in ("marked_rgb", "rgb", "depth")
+                    if any(key.startswith(f"{name}.") for key in dec_state)
+                ),
+                None,
+            )
+            if modality is not None:
+                dec_state = {
+                    key[len(f"{modality}."):]: value
+                    for key, value in dec_state.items()
+                    if key.startswith(f"{modality}.")
+                }
+            self.decoders["shared"] = _build_image_decoder(dec_state)
 
     @classmethod
     def try_load(cls, ckpt_path: Optional[str]) -> Optional["TactileDecoderBank"]:
@@ -133,7 +198,7 @@ class TactileDecoderBank(nn.Module):
 def invert_target_projection(target_proj: nn.Linear, pred_latent: torch.Tensor) -> torch.Tensor:
     weight = target_proj.weight.float()
     bias = target_proj.bias.float()
-    pinv = torch.linalg.pinv(weight)
+    pinv = torch.linalg.pinv(weight.T)
     return (pred_latent.float() - bias) @ pinv
 
 
@@ -191,6 +256,34 @@ def plot_latent_heatmap(result: dict, save_path):
     im1 = axes[1].imshow(result["pred_tactiles"].T, aspect="auto", origin="lower", cmap="viridis")
     axes[1].set_title("Predicted tactile latent")
     fig.colorbar(im1, ax=axes[1], fraction=0.046)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_latent_temporal_diff(result: dict, save_path):
+    """Visualize per-step latent change relative to t=0.
+
+    The raw latent heatmap often looks static when temporal variation is tiny.
+    This plot amplifies temporal dynamics via delta[t] = latent[t] - latent[0].
+    """
+    gt = np.asarray(result["gt_tactiles"], dtype=np.float32)
+    pred = np.asarray(result["pred_tactiles"], dtype=np.float32)
+    gt_delta = gt - gt[0:1]
+    pred_delta = pred - pred[0:1]
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    for ax, delta, title in (
+        (axes[0], gt_delta, "GT Δ latent (t - t0)"),
+        (axes[1], pred_delta, "Pred Δ latent (t - t0)"),
+    ):
+        vmax = max(float(np.max(np.abs(delta))), 1e-8)
+        im = ax.imshow(delta.T, aspect="auto", origin="lower", cmap="RdBu_r", vmin=-vmax, vmax=vmax)
+        ax.set_title(title)
+        ax.set_xlabel("Future step")
+        ax.set_ylabel("Latent dim")
+        fig.colorbar(im, ax=ax, fraction=0.046)
+    fig.suptitle(f"{result['caption']}\nTemporal change relative to chunk start", fontsize=10)
     fig.tight_layout()
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
