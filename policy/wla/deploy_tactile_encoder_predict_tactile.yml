@@ -31,5 +31,8 @@ instruction: clean
 debug_log: true
 debug_save_images: false
 debug_save_every: 50
+debug_save_head_history: false
+debug_save_head_history_every: 1
+debug_save_head_history_root: wla_debug/head_history
 eval_pre_policy_gripper_qpos: null
 eval_pre_policy_gripper_settle_steps: 5

@@ -249,6 +249,11 @@ class Policy(BasePolicy):
         self.debug_log = bool(args.get("debug_log", False))
         self.debug_save_images = bool(args.get("debug_save_images", False))
         self.debug_save_every = int(args.get("debug_save_every", 50))
+        self.debug_save_head_history = bool(args.get("debug_save_head_history", False))
+        self.debug_save_head_history_every = int(args.get("debug_save_head_history_every", 1))
+        self.debug_save_head_history_root = Path(
+            args.get("debug_save_head_history_root", "wla_debug/head_history")
+        )
         self.instruction_override = args.get("instruction", None)
         self.eval_predict_tactile = bool(args.get("eval_predict_tactile", False))
         self.tactile_eval_timesteps = tuple(
@@ -329,7 +334,13 @@ class Policy(BasePolicy):
                 getattr(self.model.config, "history_obs_step", 8),
             )
         )
-        self._head_image_history: list[torch.Tensor] = []
+        # Rolling buffer of raw head frames recorded at EVERY env step, so the
+        # history observation fed to the model is exactly `history_obs_step` env
+        # steps before the current frame -- matching the training-time delta
+        # timestamp of -history_obs_step / fps. (Previously this buffer was only
+        # appended at replan time, which made the history frame stale by a factor
+        # of replan_every / query_frequency.)
+        self._head_frame_history: list[torch.Tensor] = []
 
         # Action-only deployment does not need the image decoder branch.
         if hasattr(self.model, "vae"):
@@ -380,6 +391,7 @@ class Policy(BasePolicy):
             f"tactile_input_type={self.tactile_input_type}, "
             f"use_history_obs={self.use_history_obs}, "
             f"history_obs_step={self.history_obs_step}, "
+            f"debug_save_head_history={self.debug_save_head_history}, "
             f"eval_predict_tactile={self.eval_predict_tactile}"
         )
 
@@ -431,21 +443,88 @@ class Policy(BasePolicy):
             return tactile_obs["marker_motion"]
         raise KeyError("Tactile marker observation must contain 'marker' or 'marker_motion'.")
 
+    def _select_history_raw(self, head_tensor: torch.Tensor) -> tuple[torch.Tensor, int]:
+        if not self._head_frame_history:
+            return head_tensor, 0
+        history_raw = self._head_frame_history[0]
+        lag = min(len(self._head_frame_history) - 1, self.history_obs_step)
+        return history_raw, lag
+
+    def _chw_float_to_pil(self, tensor: torch.Tensor):
+        from PIL import Image
+
+        img = tensor.detach().cpu().float()
+        if self.convert_rgb_to_bgr:
+            img = img[[2, 1, 0], ...]
+        if img.max() <= 1.0:
+            img = (img * 255.0).clamp(0, 255)
+        img = img.permute(1, 2, 0).numpy().astype(np.uint8)
+        return Image.fromarray(img)
+
+    def _save_head_history_compare(self, head_tensor: torch.Tensor) -> None:
+        from PIL import Image, ImageDraw, ImageFont
+
+        history_raw, history_lag = self._select_history_raw(head_tensor)
+        history_img = self._chw_float_to_pil(history_raw)
+        current_img = self._chw_float_to_pil(head_tensor)
+
+        gap = 8
+        canvas_h = max(history_img.height, current_img.height)
+        canvas_w = history_img.width + current_img.width + gap
+        canvas = Image.new("RGB", (canvas_w, canvas_h), color=(32, 32, 32))
+        canvas.paste(history_img, (0, (canvas_h - history_img.height) // 2))
+        canvas.paste(current_img, (history_img.width + gap, (canvas_h - current_img.height) // 2))
+
+        draw = ImageDraw.Draw(canvas)
+        font = ImageFont.load_default()
+        draw.text(
+            (4, 4),
+            f"history (t-{history_lag})",
+            fill=(255, 220, 0),
+            font=font,
+        )
+        draw.text(
+            (history_img.width + gap + 4, 4),
+            "current (t)",
+            fill=(0, 255, 128),
+            font=font,
+        )
+        draw.text(
+            (4, canvas_h - 16),
+            f"buf={len(self._head_frame_history)}/{self.history_obs_step + 1}",
+            fill=(200, 200, 200),
+            font=font,
+        )
+
+        out_dir = self.debug_save_head_history_root
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"episode_{self._episode_idx:03d}_step_{self._exec_count:05d}.png"
+        canvas.save(out_path)
+
+    def _record_head_frame(self, head_tensor: torch.Tensor) -> None:
+        """Push the current raw head frame into the rolling history buffer.
+
+        Must be called once per env step (not per inference) so the temporal
+        spacing between buffered frames is 1 env step, matching training.
+        """
+        if not self.use_history_obs:
+            return
+        self._head_frame_history.append(head_tensor)
+        # Keep at most history_obs_step + 1 frames: [t-history_obs_step, ..., t].
+        max_len = self.history_obs_step + 1
+        if len(self._head_frame_history) > max_len:
+            self._head_frame_history = self._head_frame_history[-max_len:]
+
     def _build_head_input_images(self, head_tensor: torch.Tensor) -> list[torch.Tensor]:
         current = self.primary_image_transform(head_tensor)
         if not self.use_history_obs:
             return [current]
 
-        history_frame = self.auxiliary_image_transform(head_tensor)
-        self._head_image_history.append(history_frame)
-        if len(self._head_image_history) > self.history_obs_step:
-            self._head_image_history = self._head_image_history[-self.history_obs_step :]
-
-        history = (
-            self._head_image_history[0]
-            if len(self._head_image_history) >= self.history_obs_step
-            else current
-        )
+        # Pick the frame history_obs_step env steps ago. When the episode has not
+        # progressed that far yet, fall back to the oldest available frame, which
+        # matches the training-time clamping `max(0, frame_id - history_obs_step)`.
+        history_raw, _ = self._select_history_raw(head_tensor)
+        history = self.auxiliary_image_transform(history_raw)
         return [history, current]
 
     def encode_obs(self, observation):
@@ -830,6 +909,21 @@ class Policy(BasePolicy):
         return action
 
     def eval(self, task, observation):
+        # Record the head frame on EVERY env step so the history buffer advances
+        # at the same cadence as training (1 frame per step), regardless of how
+        # often the model actually replans / queries.
+        if self.use_history_obs:
+            head_frame = self._image_to_tensor(
+                observation["observation"]["head"]["rgb"],
+                convert_rgb_to_bgr=self.convert_rgb_to_bgr,
+            )
+            self._record_head_frame(head_frame)
+            if (
+                self.debug_save_head_history
+                and self._exec_count % self.debug_save_head_history_every == 0
+            ):
+                self._save_head_history_compare(head_frame)
+
         if self.temporal_agg:
             action = torch.from_numpy(
                 self._eval_temporal_agg(task, observation)
@@ -867,7 +961,7 @@ class Policy(BasePolicy):
         self._episode_idx += 1
         self._action_buffer = []
         self._all_time_actions = None
-        self._head_image_history = []
+        self._head_frame_history = []
         self._infer_count = 0
         self._exec_count = 0
 
